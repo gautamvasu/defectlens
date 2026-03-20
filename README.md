@@ -1,6 +1,6 @@
 # Bug Title Agent
 
-A CLI tool that suggests better bug titles using Claude AI. Give it a task number and a vague bug title, and it returns clear, concise, and descriptive alternatives.
+A tool that suggests better bug titles using Claude AI. Give it a task number and a vague bug title, and it returns clear, concise, and descriptive alternatives. Available as a **web interface** or **CLI**.
 
 ## Setup
 
@@ -19,6 +19,15 @@ A CLI tool that suggests better bug titles using Claude AI. Give it a task numbe
    Edit `.env` and add your Anthropic API key (get one at https://console.anthropic.com/).
 
 ## Usage
+
+### Web Interface
+```bash
+source venv/bin/activate
+streamlit run app.py
+```
+This opens a browser UI at `http://localhost:8501`.
+
+### CLI
 
 **Single title:**
 ```bash
