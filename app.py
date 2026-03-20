@@ -3,7 +3,14 @@ from pathlib import Path
 from dotenv import load_dotenv
 from anthropic import Anthropic
 
+import os
+
 load_dotenv(Path(__file__).parent / ".env")
+
+# Check for key in Streamlit secrets or environment
+default_key = st.secrets.get("ANTHROPIC_API_KEY", "") if hasattr(st, "secrets") else ""
+if not default_key:
+    default_key = os.environ.get("ANTHROPIC_API_KEY", "")
 
 SYSTEM_PROMPT = """You are a Bug Title Improvement Agent. Your job is to take a bug's current title and suggest better alternatives.
 
@@ -35,16 +42,20 @@ st.divider()
 
 with st.sidebar:
     st.header("Settings")
-    api_key = st.text_input(
-        "Anthropic API Key",
-        type="password",
-        placeholder="sk-ant-api03-...",
-        help="Get your key at https://console.anthropic.com/settings/keys",
-    )
-    if api_key:
-        st.success("API key set!")
+    if default_key:
+        st.success("API key configured by admin.")
+        api_key = default_key
     else:
-        st.info("Enter your API key to get started.")
+        api_key = st.text_input(
+            "Anthropic API Key",
+            type="password",
+            placeholder="sk-ant-api03-...",
+            help="Get your key at https://console.anthropic.com/settings/keys",
+        )
+        if api_key:
+            st.success("API key set!")
+        else:
+            st.info("Enter your API key to get started.")
 
 col1, col2 = st.columns([1, 3])
 with col1:
