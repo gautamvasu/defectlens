@@ -1,16 +1,9 @@
+import os
 import streamlit as st
 from pathlib import Path
 from dotenv import load_dotenv
-from anthropic import Anthropic
-
-import os
 
 load_dotenv(Path(__file__).parent / ".env")
-
-# Check for key in Streamlit secrets or environment
-default_key = st.secrets.get("ANTHROPIC_API_KEY", "") if hasattr(st, "secrets") else ""
-if not default_key:
-    default_key = os.environ.get("ANTHROPIC_API_KEY", "")
 
 SYSTEM_PROMPT = """You are a Bug Title Improvement Agent. Your job is to take a bug's current title and suggest better alternatives.
 
@@ -33,6 +26,58 @@ For each input, provide:
 
 Keep your response focused and practical."""
 
+PROVIDERS = {
+    "Gemini (Free)": {
+        "key_env": "GEMINI_API_KEY",
+        "placeholder": "AIza...",
+        "help": "Get a free key at https://aistudio.google.com/apikey",
+    },
+    "Claude (Paid)": {
+        "key_env": "ANTHROPIC_API_KEY",
+        "placeholder": "sk-ant-api03-...",
+        "help": "Get your key at https://console.anthropic.com/settings/keys",
+    },
+}
+
+
+def get_default_key(env_var):
+    try:
+        key = st.secrets.get(env_var, "")
+    except Exception:
+        key = ""
+    if not key:
+        key = os.environ.get(env_var, "")
+    return key
+
+
+def call_gemini(api_key, task_number, current_title):
+    import google.generativeai as genai
+
+    genai.configure(api_key=api_key)
+    model = genai.GenerativeModel("gemini-2.0-flash")
+    prompt = f'{SYSTEM_PROMPT}\n\nTask Number: {task_number}\nCurrent Bug Title: "{current_title}"\n\nPlease suggest better titles.'
+    response = model.generate_content(prompt)
+    return response.text
+
+
+def call_claude(api_key, task_number, current_title):
+    from anthropic import Anthropic
+
+    client = Anthropic(api_key=api_key)
+    message = client.messages.create(
+        model="claude-sonnet-4-20250514",
+        max_tokens=1024,
+        system=SYSTEM_PROMPT,
+        messages=[
+            {
+                "role": "user",
+                "content": f'Task Number: {task_number}\nCurrent Bug Title: "{current_title}"\n\nPlease suggest better titles.',
+            }
+        ],
+    )
+    return message.content[0].text
+
+
 st.set_page_config(page_title="Bug Title Agent", page_icon="🐛", layout="centered")
 
 st.title("🐛 Bug Title Agent")
@@ -42,20 +87,24 @@ st.divider()
 
 with st.sidebar:
     st.header("Settings")
+    provider = st.selectbox("AI Provider", list(PROVIDERS.keys()))
+    provider_config = PROVIDERS[provider]
+    default_key = get_default_key(provider_config["key_env"])
+
     if default_key:
         st.success("API key configured by admin.")
         api_key = default_key
     else:
         api_key = st.text_input(
-            "Anthropic API Key",
+            "API Key",
             type="password",
-            placeholder="sk-ant-api03-...",
-            help="Get your key at https://console.anthropic.com/settings/keys",
+            placeholder=provider_config["placeholder"],
+            help=provider_config["help"],
         )
         if api_key:
             st.success("API key set!")
         else:
-            st.info("Enter your API key to get started.")
+            st.info(f"Enter your API key. {provider_config['help']}")
 
 col1, col2 = st.columns([1, 3])
 with col1:
@@ -65,29 +114,22 @@ with col2:
 
 if st.button("Suggest Better Titles", type="primary", use_container_width=True):
     if not api_key:
-        st.warning("Please enter your Anthropic API key in the sidebar.")
+        st.warning("Please enter your API key in the sidebar.")
     elif not task_number or not current_title:
         st.warning("Please enter both a task number and current title.")
     else:
         with st.spinner("Generating better titles..."):
             try:
-                client = Anthropic(api_key=api_key)
-                message = client.messages.create(
-                    model="claude-sonnet-4-20250514",
-                    max_tokens=1024,
-                    system=SYSTEM_PROMPT,
-                    messages=[
-                        {
-                            "role": "user",
-                            "content": f'Task Number: {task_number}\nCurrent Bug Title: "{current_title}"\n\nPlease suggest better titles.',
-                        }
-                    ],
-                )
+                if provider == "Gemini (Free)":
+                    result = call_gemini(api_key, task_number, current_title)
+                else:
+                    result = call_claude(api_key, task_number, current_title)
+
                 st.divider()
                 st.subheader(f"Suggestions for {task_number}")
-                st.markdown(message.content[0].text)
+                st.markdown(result)
             except Exception as e:
                 st.error(f"Error: {e}")
 
 st.divider()
-st.caption("Powered by Claude AI")
+st.caption("Powered by Claude AI & Google Gemini")
