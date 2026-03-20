@@ -33,6 +33,19 @@ st.markdown("Enter a task number and current bug title to get better title sugge
 
 st.divider()
 
+with st.sidebar:
+    st.header("Settings")
+    api_key = st.text_input(
+        "Anthropic API Key",
+        type="password",
+        placeholder="sk-ant-api03-...",
+        help="Get your key at https://console.anthropic.com/settings/keys",
+    )
+    if api_key:
+        st.success("API key set!")
+    else:
+        st.info("Enter your API key to get started.")
+
 col1, col2 = st.columns([1, 3])
 with col1:
     task_number = st.text_input("Task Number", placeholder="T12345")
@@ -40,12 +53,14 @@ with col2:
     current_title = st.text_input("Current Bug Title", placeholder="login not working")
 
 if st.button("Suggest Better Titles", type="primary", use_container_width=True):
-    if not task_number or not current_title:
+    if not api_key:
+        st.warning("Please enter your Anthropic API key in the sidebar.")
+    elif not task_number or not current_title:
         st.warning("Please enter both a task number and current title.")
     else:
         with st.spinner("Generating better titles..."):
             try:
-                client = Anthropic()
+                client = Anthropic(api_key=api_key)
                 message = client.messages.create(
                     model="claude-sonnet-4-20250514",
                     max_tokens=1024,
