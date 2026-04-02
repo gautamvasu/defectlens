@@ -204,7 +204,7 @@ def check_mandatory_tags(mandatory_tags, actual_tags):
             score_color = "#d4930d"
         else:
             score_color = "#dc3545"
-        results.append(f'<div style="color:{score_color};font-weight:bold;font-size:1.15em;margin:1em 0;">Mandatory tags score: {present_count}/{total} present ({pct:.0f}%)</div>')
+        results.append(f'Mandatory tags score: {present_count}/{total} present ({pct:.0f}%)')
     # Put score at the top, then list individual tag items
     tag_items = results[:-1]
     score_line = results[-1]
@@ -578,6 +578,7 @@ def colorize_result(result):
     result = re.sub(r'(#{2,3}\s)', r'\n\1', result)
     # Force newline before score lines
     result = re.sub(r'(Overall completeness score:)', r'\n\1', result)
+    result = re.sub(r'(Mandatory tags score:)', r'\n\1', result)
     # Clean up: remove duplicate dashes like "- - 🟢" → "- 🟢"
     result = re.sub(r'-\s*-\s*(🟢|🟡|🔴)', r'- \1', result)
 
@@ -620,8 +621,8 @@ def colorize_result(result):
             line = re.sub(r'💡\s*<strong>SUGGESTION</strong>', '<span style="color:#0d6efd;font-weight:bold;">💡 SUGGESTION</span>', line)
             line = re.sub(r'💡\s*SUGGESTION\*\*', '<span style="color:#0d6efd;font-weight:bold;">💡 SUGGESTION</span>', line)
             html_parts.append(f'<div style="padding:4px 0 4px 20px;">{line}</div>')
-        # Overall completeness score
-        elif 'completeness score:' in line.lower() or line.startswith('Overall'):
+        # Score lines (mandatory tags score + overall completeness score)
+        elif 'completeness score:' in line.lower() or line.startswith('Overall') or 'Mandatory tags score:' in line:
             pct_match = re.search(r'\((\d+)%\)', line)
             if pct_match:
                 pct = int(pct_match.group(1))
@@ -670,7 +671,9 @@ if st.session_state.get("last_review_result") and st.session_state.get("last_cre
     st.markdown('<style>div[data-testid="stButton"]:last-of-type button {background-color: #198754 !important; color: white !important; border: none !important; padding: 0.5rem 1rem !important; font-size: 1rem !important; font-weight: 600 !important; border-radius: 0.5rem !important;}</style>', unsafe_allow_html=True)
     if st.button(f"Notify {notify_creator} on Google Chat", type="primary", use_container_width=True):
         review = st.session_state["last_review_result"]
-        gchat_msg = f"Hi! Your task {task_number} has been reviewed by DefectLens.\n\n{review}"
+        # Strip any HTML tags for plain text gchat message
+        clean_review = re.sub(r'<[^>]+>', '', review)
+        gchat_msg = f"Hi! Your task {task_number} has been reviewed by DefectLens.\n\n{clean_review}"
         with st.spinner("Sending Google Chat message..."):
             success, msg = send_gchat_message(
                 st.session_state["last_creator_unixname"],
