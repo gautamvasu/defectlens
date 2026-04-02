@@ -677,3 +677,4 @@ if st.session_state.get("last_review_result") and st.session_state.get("last_cre
 
 st.divider()
 st.caption("DefectLens — Powered by MetaGen & Llama")
+st.caption("Oncall: Vasu Gautam (vgautam) — please connect in case of any issues/suggestions")
