@@ -8,61 +8,56 @@ from dotenv import load_dotenv
 
 load_dotenv(Path(__file__).parent / ".env")
 
-SYSTEM_PROMPT = """You are a Bug Report Review Agent. Your job is to review a bug report and provide two things:
+SYSTEM_PROMPT = """You are a Bug Report Review Agent. Your output MUST use proper markdown formatting with line breaks between items. NEVER output bulleted items or numbered items in a single paragraph.
+
+## Mandatory Tags
+If mandatory tag results are provided, include them as-is in your output under a "## Mandatory Tags" heading before the checklist gap analysis.
 
 ## Part 1: Checklist Gap Analysis
-If a checklist is provided, compare the bug report (title, description, and logs) against each checklist item.
-For EACH checklist item, output EXACTLY one of these formats (use the exact emoji and markdown):
-- 🟢 **PRESENT**: <checklist item> — if fully covered
-- 🟡 **PARTIALLY PRESENT**: <checklist item> — <what is missing or incomplete>
-- 🔴 **MISSING**: <checklist item> — <what the reporter should add>
 
-After listing all items, give an overall completeness score in EXACTLY this format:
+First line after the heading must be:
 Overall completeness score: X/Y items covered (Z%)
-where Z is the percentage rounded to the nearest whole number.
 
-IMPORTANT: If no log signals are provided in the input, always flag it as:
-🔴 **MISSING**: Log attachment (bugreport/logcat) — No log file was attached. Please attach relevant logs for debugging.
+Then output each checklist item as a markdown bullet, one per line:
+- 🟢 **PRESENT**: <item> — if fully covered
+- 🟡 **PARTIALLY PRESENT**: <item> — <what is incomplete>
+- 🔴 **MISSING**: <item> — <what to add>
 
-If mandatory tag results are provided, include them as-is in your output under a "## Mandatory Tags" section before the checklist gap analysis.
+If no log signals are provided, always include:
+- 🔴 **MISSING**: Log attachment (bugreport/logcat) — No log file was attached. Please attach relevant logs for debugging.
 
-If no checklist is provided, assess the bug report for common gaps: steps to reproduce, expected vs actual behavior, environment info, severity, log attachment, and screenshots, using the same color format above.
+If no checklist is provided, assess for: steps to reproduce, expected vs actual behavior, environment info, severity, log attachment, and screenshots.
 
 ## Part 2: Suggested Defect Title
-Analyze the description, logs, and all available context to suggest a title that clearly explains the intent and nature of the defect.
 
-A good defect title should be:
-- Clear: Anyone reading it should immediately understand the issue
-- Concise: Short enough to scan quickly (ideally under 80 characters)
-- Descriptive: Includes the WHAT (component/feature), the WHERE (context), and the problem
-- Action-oriented: Describes the symptom or broken behavior, not the fix
-- Specific: Avoids vague words like "issue", "problem", "bug", "broken", "not working"
+### Analysis
+Write a short paragraph analyzing the current title's weaknesses.
 
-When log signals (stack traces, crashes, ANRs) are provided, extract the component, exception type, and root cause to craft a precise title.
+### Suggestions
+Output exactly 3 suggestions as a numbered list:
+1. 💡 **SUGGESTION**: "<best title>"
+2. 💡 **SUGGESTION**: "<second best title>"
+3. 💡 **SUGGESTION**: "<third title>"
 
-Provide:
-1. Analysis of the current title's weaknesses
-2. 3 improved title suggestions ranked from best to good. Format each suggestion EXACTLY as:
-   💡 **SUGGESTION**: "<title here>"
-3. A brief explanation of why the top suggestion best captures the defect's intent
+### Why the top suggestion is best
+Write a short paragraph explaining why.
 
-Keep your response focused and practical."""
+FORMATTING RULES:
+- Each bullet or numbered item MUST be on its own line
+- Do NOT add extra blank lines between list items
+- NEVER combine multiple items into one paragraph
+- Use markdown headings (##, ###) to separate sections"""
 
 PROVIDERS = {
-    "Groq (Free)": {
-        "key_env": "GROQ_API_KEY",
-        "placeholder": "gsk_...",
-        "help": "Get a free key at https://console.groq.com/keys (no credit card needed)",
+    "MetaGen (Internal)": {
+        "key_env": "METAGEN_API_KEY",
+        "placeholder": "LLM|...",
+        "help": "Get your key at https://metagen-llm-api-keys.nest.x2p.facebook.net/ (Meta VPN required)",
     },
-    "Gemini (Free)": {
-        "key_env": "GEMINI_API_KEY",
-        "placeholder": "AIza...",
-        "help": "Get a free key at https://aistudio.google.com/apikey",
-    },
-    "Claude (Paid)": {
-        "key_env": "ANTHROPIC_API_KEY",
-        "placeholder": "sk-ant-api03-...",
-        "help": "Get your key at https://console.anthropic.com/settings/keys",
+    "Ollama (Local — No API Key)": {
+        "key_env": None,
+        "placeholder": "",
+        "help": "Runs Llama locally via Ollama. No API key needed. Install from ollama.com/download",
     },
 }
 
@@ -208,11 +203,11 @@ def check_mandatory_tags(mandatory_tags, actual_tags):
             score_color = "#d4930d"
         else:
             score_color = "#dc3545"
-        results.append(f'<div style="color:{score_color};font-weight:bold;margin-top:0.5em;">Mandatory tags score: {present_count}/{total} present ({pct:.0f}%)</div>')
-    # Join tag items, then append score separately with HTML line break
+        results.append(f'<div style="color:{score_color};font-weight:bold;font-size:1.15em;margin:1em 0;">Mandatory tags score: {present_count}/{total} present ({pct:.0f}%)</div>')
+    # Put score at the top, then list individual tag items
     tag_items = results[:-1]
     score_line = results[-1]
-    return "\n\n".join(tag_items) + "\n\n" + score_line
+    return score_line + "\n\n" + "\n\n".join(tag_items)
 
 
 def build_user_prompt(task_number, current_title, description, log_summary=None, checklist=None, tags=None, mandatory_tag_results=None):
@@ -231,56 +226,74 @@ def build_user_prompt(task_number, current_title, description, log_summary=None,
     return prompt
 
 
-def call_groq(api_key, task_number, current_title, description, log_summary=None, checklist=None, tags=None, mandatory_tag_results=None):
-    from groq import Groq
+def call_metagen(api_key, task_number, current_title, description, log_summary=None, checklist=None, tags=None, mandatory_tag_results=None):
+    import urllib.request
 
-    client = Groq(api_key=api_key)
-    response = client.chat.completions.create(
-        model="llama-3.3-70b-versatile",
-        max_tokens=1024,
-        messages=[
+    payload = json.dumps({
+        "model": "Llama-4-Scout-17B-16E-Instruct-FP8",
+        "messages": [
             {"role": "system", "content": SYSTEM_PROMPT},
             {"role": "user", "content": build_user_prompt(task_number, current_title, description, log_summary, checklist, tags, mandatory_tag_results)},
         ],
+        "max_tokens": 1024,
+    })
+    req = urllib.request.Request(
+        "https://api.llama.com/compat/v1/chat/completions",
+        data=payload.encode("utf-8"),
+        headers={
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {api_key}",
+        },
     )
-    return response.choices[0].message.content
+    with urllib.request.urlopen(req, timeout=120) as resp:
+        data = json.loads(resp.read().decode("utf-8"))
+        return data["choices"][0]["message"]["content"]
 
 
-def call_gemini(api_key, task_number, current_title, description, log_summary=None, checklist=None, tags=None, mandatory_tag_results=None):
-    import google.generativeai as genai
+def call_ollama(api_key, task_number, current_title, description, log_summary=None, checklist=None, tags=None, mandatory_tag_results=None):
+    import urllib.request
+    import urllib.error
 
-    genai.configure(api_key=api_key)
-    model = genai.GenerativeModel("gemini-2.0-flash")
-    prompt = f'{SYSTEM_PROMPT}\n\n{build_user_prompt(task_number, current_title, description, log_summary, checklist, tags, mandatory_tag_results)}'
-    response = model.generate_content(prompt)
-    return response.text
-
-
-def call_claude(api_key, task_number, current_title, description, log_summary=None, checklist=None, tags=None, mandatory_tag_results=None):
-    from anthropic import Anthropic
-
-    client = Anthropic(api_key=api_key)
-    message = client.messages.create(
-        model="claude-sonnet-4-20250514",
-        max_tokens=1024,
-        system=SYSTEM_PROMPT,
-        messages=[
+    payload = json.dumps({
+        "model": "llama3.1:8b",
+        "messages": [
+            {"role": "system", "content": SYSTEM_PROMPT},
             {"role": "user", "content": build_user_prompt(task_number, current_title, description, log_summary, checklist, tags, mandatory_tag_results)},
         ],
+        "stream": False,
+    })
+    req = urllib.request.Request(
+        "http://localhost:11434/api/chat",
+        data=payload.encode("utf-8"),
+        headers={"Content-Type": "application/json"},
     )
-    return message.content[0].text
+    try:
+        with urllib.request.urlopen(req, timeout=120) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+            return data["message"]["content"]
+    except urllib.error.URLError:
+        raise ConnectionError(
+            "Cannot connect to Ollama. Make sure Ollama is running:\n"
+            "1. Install from ollama.com/download\n"
+            "2. Open the Ollama app\n"
+            "3. Run: ollama pull llama3.1:8b"
+        )
 
 
 CALL_FUNCTIONS = {
-    "Groq (Free)": call_groq,
-    "Gemini (Free)": call_gemini,
-    "Claude (Paid)": call_claude,
+    "MetaGen (Internal)": call_metagen,
+    "Ollama (Local — No API Key)": call_ollama,
 }
+
 
 st.set_page_config(page_title="DefectLens", page_icon="🔍", layout="centered")
 
 st.markdown("""
 <style>
+    section[data-testid="stSidebar"] {
+        min-width: 380px;
+        max-width: 420px;
+    }
     .stMarkdown strong {font-weight: 700;}
     div[data-testid="stButton"].notify-btn button {
         background-color: #198754 !important;
@@ -308,22 +321,36 @@ with st.sidebar:
     st.header("Settings")
     provider = st.selectbox("AI Provider", list(PROVIDERS.keys()))
     provider_config = PROVIDERS[provider]
-    default_key = get_default_key(provider_config["key_env"])
 
-    if default_key:
-        st.success("API key configured by admin.")
-        api_key = default_key
+    if provider_config["key_env"] is None:
+        api_key = "local"
+        st.success("No API key needed — runs locally via Ollama.")
+        with st.expander("Ollama Setup Instructions"):
+            st.markdown("""
+1. **Download & Install** Ollama from [ollama.com/download](https://ollama.com/download)
+2. **Open** the Ollama app
+3. **Pull the model** — run in terminal:
+   ```
+   ollama pull llama3.1:8b
+   ```
+4. Make sure Ollama is **running** before clicking Review Task
+""")
     else:
-        api_key = st.text_input(
-            "API Key",
-            type="password",
-            placeholder=provider_config["placeholder"],
-            help=provider_config["help"],
-        )
-        if api_key:
-            st.success("API key set!")
+        default_key = get_default_key(provider_config["key_env"])
+        if default_key:
+            st.success("API key configured.")
+            api_key = default_key
         else:
-            st.info(f"Enter your API key. {provider_config['help']}")
+            api_key = st.text_input(
+                "API Key",
+                type="password",
+                placeholder=provider_config["placeholder"],
+                help=provider_config["help"],
+            )
+            if api_key:
+                st.success("API key set!")
+            else:
+                st.info(f"Enter your API key. {provider_config['help']}")
 
 task_number = st.text_input("Task Number", placeholder="T12345")
 
@@ -529,68 +556,115 @@ else:
 
 mandatory_tags = [t.strip() for t in mandatory_tags_input.splitlines() if t.strip()] if mandatory_tags_input else []
 
+# Clear review state if task number changed
+if task_number != st.session_state.get("last_task_number", ""):
+    for key in ["last_review_result", "last_review_colored", "last_task_number", "last_creator_unixname", "last_creator_name"]:
+        st.session_state.pop(key, None)
+
+
+def colorize_result(result):
+    """Apply color coding to review result. Converts to pure HTML."""
+    # Force newline before EVERY status emoji — unconditionally
+    result = re.sub(r'(🟢)', r'\n- 🟢', result)
+    result = re.sub(r'(🟡)', r'\n- 🟡', result)
+    result = re.sub(r'(🔴)', r'\n- 🔴', result)
+    # Force newline before numbered suggestions
+    result = re.sub(r'(\d+\.\s*💡)', r'\n\1', result)
+    # Force newline before headings
+    result = re.sub(r'(#{2,3}\s)', r'\n\1', result)
+    # Force newline before score lines
+    result = re.sub(r'(Overall completeness score:)', r'\n\1', result)
+    # Clean up: remove duplicate dashes like "- - 🟢" → "- 🟢"
+    result = re.sub(r'-\s*-\s*(🟢|🟡|🔴)', r'- \1', result)
+
+    # Build HTML line by line
+    lines = result.split('\n')
+    html_parts = []
+    for line in lines:
+        line = line.strip()
+        if not line:
+            continue
+
+        # Convert markdown bold **text** to <strong>
+        line = re.sub(r'\*\*(.+?)\*\*', r'<strong>\1</strong>', line)
+        # Convert markdown code `text` to <code>
+        line = re.sub(r'`(.+?)`', r'<code>\1</code>', line)
+
+        # Headings
+        if line.startswith('### '):
+            html_parts.append(f'<h3>{line[4:]}</h3>')
+        elif line.startswith('## '):
+            html_parts.append(f'<h2>{line[3:]}</h2>')
+        # Checklist bullet items — match on emoji anywhere in line
+        elif '🟢' in line:
+            content = re.sub(r'^-\s*', '', line)
+            content = re.sub(r'🟢\s*<strong>PRESENT</strong>', '<span style="color:#198754;font-weight:bold;">🟢 PRESENT</span>', content)
+            content = re.sub(r'🟢\s*PRESENT\*\*', '<span style="color:#198754;font-weight:bold;">🟢 PRESENT</span>', content)
+            html_parts.append(f'<div style="padding:4px 0 4px 20px;">• {content}</div>')
+        elif '🟡' in line:
+            content = re.sub(r'^-\s*', '', line)
+            content = re.sub(r'🟡\s*<strong>PARTIALLY PRESENT</strong>', '<span style="color:#d4930d;font-weight:bold;">🟡 PARTIALLY PRESENT</span>', content)
+            content = re.sub(r'🟡\s*PARTIALLY PRESENT\*\*', '<span style="color:#d4930d;font-weight:bold;">🟡 PARTIALLY PRESENT</span>', content)
+            html_parts.append(f'<div style="padding:4px 0 4px 20px;">• {content}</div>')
+        elif '🔴' in line:
+            content = re.sub(r'^-\s*', '', line)
+            content = re.sub(r'🔴\s*<strong>MISSING</strong>', '<span style="color:#dc3545;font-weight:bold;">🔴 MISSING</span>', content)
+            content = re.sub(r'🔴\s*MISSING\*\*', '<span style="color:#dc3545;font-weight:bold;">🔴 MISSING</span>', content)
+            html_parts.append(f'<div style="padding:4px 0 4px 20px;">• {content}</div>')
+        # Numbered suggestion items
+        elif re.match(r'^\d+\.\s*💡', line):
+            line = re.sub(r'💡\s*<strong>SUGGESTION</strong>', '<span style="color:#0d6efd;font-weight:bold;">💡 SUGGESTION</span>', line)
+            line = re.sub(r'💡\s*SUGGESTION\*\*', '<span style="color:#0d6efd;font-weight:bold;">💡 SUGGESTION</span>', line)
+            html_parts.append(f'<div style="padding:4px 0 4px 20px;">{line}</div>')
+        # Overall completeness score
+        elif 'completeness score:' in line.lower() or line.startswith('Overall'):
+            pct_match = re.search(r'\((\d+)%\)', line)
+            if pct_match:
+                pct = int(pct_match.group(1))
+            else:
+                nums = re.search(r'(\d+)/(\d+)', line)
+                pct = int(int(nums.group(1)) / int(nums.group(2)) * 100) if nums and int(nums.group(2)) > 0 else 0
+            color = "#198754" if pct >= 80 else "#d4930d" if pct >= 50 else "#dc3545"
+            html_parts.append(f'<div style="color:{color};font-weight:bold;font-size:1.15em;margin:1em 0;">{line}</div>')
+        # Regular paragraph
+        else:
+            html_parts.append(f'<p>{line}</p>')
+
+    return '\n'.join(html_parts)
+
+
 if st.button("Review Task", type="primary", use_container_width=True):
     if not api_key:
         st.warning("Please enter your API key in the sidebar.")
     elif not task_number or not current_title:
         st.warning("Please enter both a task number and title.")
     else:
-        with st.spinner("Generating better titles..."):
+        with st.spinner("Reviewing task..."):
             try:
                 mtr = check_mandatory_tags(mandatory_tags, fetched_tags) if mandatory_tags else None
                 result = CALL_FUNCTIONS[provider](api_key, task_number, current_title, description, log_summary, checklist_text, fetched_tags, mtr)
-                st.divider()
-                st.subheader(f"Review for {task_number}")
-                # Color-code the checklist results
-                colored = result.replace(
-                    "🔴 **MISSING**", '<span style="color:#dc3545;font-weight:bold;">🔴 MISSING</span>**'
-                ).replace(
-                    "🟢 **PRESENT**", '<span style="color:#198754;font-weight:bold;">🟢 PRESENT</span>**'
-                ).replace(
-                    "🟡 **PARTIALLY PRESENT**", '<span style="color:#d4930d;font-weight:bold;">🟡 PARTIALLY PRESENT</span>**'
-                ).replace(
-                    "💡 **SUGGESTION**", '<span style="color:#0d6efd;font-weight:bold;">💡 SUGGESTION</span>**'
-                )
-                # Color the overall completeness score
-                def color_completeness_score(match):
-                    text = match.group(0)
-                    pct_match = re.search(r'\((\d+)%\)', text)
-                    if pct_match:
-                        pct = int(pct_match.group(1))
-                    else:
-                        nums = re.search(r'(\d+)/(\d+)', text)
-                        if nums and int(nums.group(2)) > 0:
-                            pct = int(int(nums.group(1)) / int(nums.group(2)) * 100)
-                        else:
-                            pct = 0
-                    if pct >= 80:
-                        color = "#198754"
-                    elif pct >= 50:
-                        color = "#d4930d"
-                    else:
-                        color = "#dc3545"
-                    return f'<span style="color:{color};font-weight:bold;">{text}</span>'
-                colored = re.sub(r'Overall completeness score:.*', color_completeness_score, colored)
-                st.markdown(colored, unsafe_allow_html=True)
-
-                # Store result for notification
                 st.session_state["last_review_result"] = result
+                st.session_state["last_review_colored"] = colorize_result(result)
                 st.session_state["last_task_number"] = task_number
                 st.session_state["last_creator_unixname"] = creator_unixname
                 st.session_state["last_creator_name"] = creator_name
             except Exception as e:
                 st.error(f"Error: {e}")
 
-# Notify creator button (shown after review)
-if st.session_state.get("last_review_result") and st.session_state.get("last_creator_unixname"):
+# Display review result from session state
+if st.session_state.get("last_review_colored") and st.session_state.get("last_task_number") == task_number:
+    st.divider()
+    st.subheader(f"Review for {st.session_state['last_task_number']}")
+    st.markdown(st.session_state["last_review_colored"], unsafe_allow_html=True)
+
+# Notify creator button
+if st.session_state.get("last_review_result") and st.session_state.get("last_creator_unixname") and st.session_state.get("last_task_number") == task_number:
     st.divider()
     notify_creator = st.session_state.get("last_creator_name") or st.session_state["last_creator_unixname"]
     st.markdown('<style>div[data-testid="stButton"]:last-of-type button {background-color: #198754 !important; color: white !important; border: none !important; padding: 0.5rem 1rem !important; font-size: 1rem !important; font-weight: 600 !important; border-radius: 0.5rem !important;}</style>', unsafe_allow_html=True)
     if st.button(f"Notify {notify_creator} on Google Chat", type="primary", use_container_width=True):
-        task_num = st.session_state["last_task_number"]
         review = st.session_state["last_review_result"]
-        # Build a plain-text message for Google Chat
-        gchat_msg = f"Hi! Your task {task_num} has been reviewed by DefectLens.\n\n{review}"
+        gchat_msg = f"Hi! Your task {task_number} has been reviewed by DefectLens.\n\n{review}"
         with st.spinner("Sending Google Chat message..."):
             success, msg = send_gchat_message(
                 st.session_state["last_creator_unixname"],
@@ -602,4 +676,4 @@ if st.session_state.get("last_review_result") and st.session_state.get("last_cre
             st.error(f"Failed to notify: {msg}")
 
 st.divider()
-st.caption("DefectLens — Powered by Groq, Google Gemini & Claude AI")
+st.caption("DefectLens — Powered by MetaGen & Llama")

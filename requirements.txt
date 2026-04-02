@@ -1,6 +1,4 @@
-anthropic
-google-generativeai
-groq
+markdown
 openpyxl
 pandas
 python-dotenv
